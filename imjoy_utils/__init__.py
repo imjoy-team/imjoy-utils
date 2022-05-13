@@ -3,6 +3,7 @@
 import io
 import locale
 import os
+import json
 
 try:
     from js import eval, location
@@ -219,7 +220,7 @@ class HTTPFile(io.IOBase):
             req = Request(self._url, method="HEAD")
             response = urlopen(req)
             if response.getcode() in [200]:
-                length = response.info().getheader("Content-Length")
+                length = response.getheader("Content-Length")
                 return int(length)
             else:
                 raise Exception(f"Failed to fetch: {response.getcode()}")
@@ -241,7 +242,7 @@ class HTTPFile(io.IOBase):
             req.add_header("range", f"bytes={start}-{end}")
             response = urlopen(req)
             if response.getcode() in [200, 206]:
-                crange = response.info().getheader("Content-Range")
+                crange = response.getheader("Content-Range")
                 if crange:
                     self._size = int(crange.split("/")[1])
                 result = response.read()
@@ -261,3 +262,39 @@ def open_elfinder(path, mode="r", encoding=None, newline=None):
     else:
         url = path
     return HTTPFile(url, mode=mode, encoding=encoding, newline=newline, name=path)
+
+
+class ElFinder():
+    def __init__(self, base_url=None):
+        if not base_url:
+            base_url = location.origin + "/fs"
+        self.base_url = base_url
+    
+    def open(self, path, mode="r", encoding=None, newline=None):
+        """Open an HTTPFile from elFinder."""
+        if not path.startswith("http"):
+            url = self.base_url + path
+        else:
+            url = path
+        return HTTPFile(url, mode=mode, encoding=encoding, newline=newline, name=path)
+    
+    def listdir(self, path):
+        if not path.startswith("http"):
+            url = self.base_url + path
+        else:
+            url = path
+        if IS_PYODIDE:
+            req = _sync_xhr_get(url)
+            if req.status in [200]:
+                result = json.loads(req.response.to_py().tobytes())
+                return result["children"]
+            else:
+                raise Exception(f"Failed to list dir: {req.status}")
+        else:
+            req = Request(self._url, method="GET")
+            response = urlopen(req)
+            if response.getcode() in [200]:
+                result = json.loads(response.read())
+                return result["children"]
+            else:
+                raise Exception(f"Failed to list dir: {response.getcode()}")
